@@ -72,7 +72,7 @@ test("the free usage limit opens the Go dialog once, leaves a readable notice, a
     },
   ])
 
-  await expect(page.getByRole("status").filter({ hasText: "You've used today's free messages." })).toHaveCount(2)
+  await expect(page.getByRole("status").filter({ hasText: "You've used today's free messages." })).toBeVisible()
   await expect(page.getByRole("dialog")).toHaveCount(0)
 })
 
