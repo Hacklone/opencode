@@ -628,21 +628,60 @@ export function Session(props: {
     current.submit()
   })
   const dialog = useDialog()
-  const [goUpsell, updateGoUpsell] = useStorage().store<{ lastSeenAt?: number }>("go-upsell", { initial: {} })
+  const storage = useStorage()
+  const [goUpsell, updateGoUpsell] = storage.store<{ lastSeenAt?: number }>("go-upsell", { initial: {} })
+  const [goUpsellMemory, updateGoUpsellMemory] = storage.memory<{ lastSeenAt?: number }>("go-upsell", { initial: {} })
+  const handledFreeLimits = new Set<string>()
   // Restore the prompt when the free allowance stops it, and open the OpenCode Go connect dialog on the first hit in a day.
   onCleanup(
     data.on("session.step.failed", (event) => {
       if (event.data.sessionID !== route.sessionID || event.data.error.type !== "provider.free-limit") return
+      if (handledFreeLimits.has(event.data.assistantMessageID)) return
+      handledFreeLimits.add(event.data.assistantMessageID)
       const current = prompt()
-      if (current && !current.current.text.trim()) {
-        const message = messages().findLast((item) => item.type === "user")
-        if (message?.type === "user") current.set({ ...projectedPromptInput(message), pasted: [] })
+      const wasEmpty = Boolean(
+        current &&
+          !current.current.text.trim() &&
+          !current.current.files?.length &&
+          !current.current.agents?.length &&
+          !current.current.skills?.length &&
+          !current.current.pasted.length,
+      )
+      if (!wasEmpty || !current) return
+      const list = messages()
+      const end = list.findIndex((item) => item.id === event.data.assistantMessageID)
+      let recalled = false
+      let blocked = false
+      for (let i = (end < 0 ? list.length : end) - 1; i >= 0; i--) {
+        const item = list[i]
+        if (!item || item.type === "shell" || item.type === "idle") {
+          blocked = true
+          break
+        }
+        if (item.type === "user" && !data.session.input.has(route.sessionID, item.id)) {
+          current.set({ ...projectedPromptInput(item), pasted: [] })
+          recalled = true
+          break
+        }
+      }
+      if (!recalled && !blocked) {
+        const fallback = list.findLast((item) => item.type === "user" && !data.session.input.has(route.sessionID, item.id))
+        if (fallback?.type === "user") current.set({ ...projectedPromptInput(fallback), pasted: [] })
       }
       if (dialog.stack.length > 0) return
-      if (goUpsell.lastSeenAt !== undefined && Date.now() - goUpsell.lastSeenAt < 86_400_000) return
-      void updateGoUpsell((draft) => {
-        draft.lastSeenAt = Date.now()
+      const goIntegration = (data.location.integration.list(location()) ?? data.location.integration.list() ?? []).find(
+        (item) => item.id === "opencode-go",
+      )
+      if (!goIntegration?.methods.some((method) => method.type === "oauth")) return
+      const now = Date.now()
+      const seen = Math.max(goUpsell.lastSeenAt ?? 0, goUpsellMemory.lastSeenAt ?? 0)
+      if (seen > 0 && now - seen < 86_400_000) return
+      updateGoUpsellMemory((draft) => {
+        draft.lastSeenAt = now
       })
+      void updateGoUpsell((draft) => {
+        draft.lastSeenAt = now
+      }).catch(() => undefined)
       dialog.replace(() => (
         <DialogIntegration
           integrationID="opencode-go"
@@ -2419,13 +2458,24 @@ function QueuedPromptDock(props: { prompts: { id: string; text: string }[]; onOp
   )
 }
 
-function FreeLimitNotice(props: { message: SessionMessageAssistant }) {
+function FreeLimitNotice(props: { message: Pick<SessionMessageAssistant, "error" | "time"> }) {
   const theme = useTheme()
   const reset = createMemo(() => {
     const delay = props.message.error?.retryAfterMs
-    if (delay === undefined) return
-    const at = (props.message.time.completed ?? props.message.time.created) + delay
-    return at - Date.now() < 86_400_000 ? Locale.time(at) : Locale.datetime(at)
+    const base = props.message.time.completed ?? props.message.time.created
+    if (
+      delay === undefined ||
+      !Number.isFinite(delay) ||
+      delay < 0 ||
+      delay > 7 * 86_400_000 ||
+      !Number.isFinite(base)
+    )
+      return
+    const at = base + delay
+    if (Number.isNaN(new Date(at).getTime())) return
+    return new Date(at).toDateString() === new Date(base).toDateString() && at - Date.now() < 86_400_000
+      ? Locale.time(at)
+      : Locale.datetime(at)
   })
   return (
     <box paddingLeft={3} flexDirection="column">

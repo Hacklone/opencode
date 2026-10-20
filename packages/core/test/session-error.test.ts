@@ -86,6 +86,18 @@ describe("toSessionError", () => {
     )
     expect(free).toMatchObject({ type: "provider.free-limit", status: 429, retryAfterMs: 3_600_000 })
     expect(free.message).not.toContain("try again later")
+    expect(
+      toSessionError(
+        llm(
+          new QuotaExceededError({
+            message: "Rate limit exceeded. Please try again later.",
+            body,
+            classification: "free-usage",
+            retryAfterMs: 9_000_000_000_000_000,
+          }),
+        ),
+      ).retryAfterMs,
+    ).toBeUndefined()
     expect(toSessionError(llm(new QuotaExceededError({ message: "Go usage limit exceeded" })))).toEqual({
       type: "provider.quota",
       message: "Go usage limit exceeded",

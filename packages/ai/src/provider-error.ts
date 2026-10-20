@@ -265,8 +265,12 @@ export function classifyProviderFailure(input: ProviderFailure): AIError["reason
   )
     return new QuotaExceededError({
       ...details,
-      classification: codes.includes("freeusagelimiterror") ? "free-usage" : undefined,
-      retryAfterMs: input.retryAfterMs,
+      classification:
+        isZenRoute(input.http?.url) &&
+        [...providerCodes(input.data), ...providerCodes(body)].some((code) => code.toLowerCase() === "freeusagelimiterror")
+          ? "free-usage"
+          : undefined,
+      retryAfterMs: normalizeRetryAfterMs(input.retryAfterMs),
     })
   if (
     input.status === 401 ||
@@ -340,4 +344,27 @@ function providerCodes(value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+const MAX_RETRY_AFTER_MS = 7 * 86_400_000
+
+function normalizeRetryAfterMs(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return undefined
+  const ms = Math.ceil(Math.max(0, value))
+  return ms <= MAX_RETRY_AFTER_MS ? ms : undefined
+}
+
+function isZenRoute(url: string | undefined) {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    return (
+      (parsed.hostname === "opencode.ai" || parsed.hostname.endsWith(".opencode.ai")) &&
+      (parsed.pathname === "/zen" ||
+        parsed.pathname.startsWith("/zen/") ||
+        (parsed.pathname.startsWith("/inference/") && !parsed.pathname.startsWith("/inference/go/")))
+    )
+  } catch {
+    return false
+  }
 }

@@ -7,6 +7,7 @@ test.use({ permissions: ["clipboard-read", "clipboard-write"] })
 test("the free usage limit opens the Go dialog once, leaves a readable notice, and restores the prompt", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(T0)
   const sessionID = "ses_free_limit"
   const model = { id: "big-pickle", providerID: "opencode" }
 
@@ -53,18 +54,35 @@ test("the free usage limit opens the Go dialog once, leaves a readable notice, a
   await expect(upsell).toHaveCount(0)
   await expect(page.getByRole("status").filter({ hasText: "You've used today's free messages." })).toBeVisible()
 
+  // Advance past the 24-hour window and reload: "Don't show again" still suppresses the dialog, and an attachment-only draft survives.
+  const later = T0 + 2 * 86_400_000
+  await page.clock.setFixedTime(later)
+  await page.reload()
+  await expect(view.editor).toBeVisible()
+  await view.editor.fill("")
+
+  const transfer = await page.evaluateHandle(() => {
+    const value = new DataTransfer()
+    value.items.add(new File(["png-bytes"], "diagram.png", { type: "image/png" }))
+
+    return value
+  })
+
+  await view.editor.dispatchEvent("paste", { clipboardData: transfer })
+  await expect(page.locator('[data-component="composer-attachments"]')).toContainText("diagram.png")
+
   await view.push([
     {
       id: "evt_free_limit_2",
-      created: T0 + 3,
+      created: later + 3,
       type: "session.step.started",
       location,
       durable: durable(2),
-      data: { sessionID, assistantMessageID: "msg_free_assistant_2", agent: "build", model, started: T0 + 3 },
+      data: { sessionID, assistantMessageID: "msg_free_assistant_2", agent: "build", model, started: later + 3 },
     },
     {
       id: "evt_free_limit_3",
-      created: T0 + 4,
+      created: later + 4,
       type: "session.step.failed",
       location,
       durable: durable(3),
@@ -74,6 +92,8 @@ test("the free usage limit opens the Go dialog once, leaves a readable notice, a
 
   await expect(page.getByRole("status").filter({ hasText: "You've used today's free messages." })).toBeVisible()
   await expect(page.getByRole("dialog")).toHaveCount(0)
+  await expect(page.locator('[data-component="composer-attachments"]')).toContainText("diagram.png")
+  await expect(view.editor).toHaveText("")
 })
 
 test("a catalog refresh cannot replace an existing session's model", async ({ page }) => {

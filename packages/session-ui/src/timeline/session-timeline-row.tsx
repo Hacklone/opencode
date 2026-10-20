@@ -1014,7 +1014,8 @@ export function createSessionTimelineRowRenderer(input: {
       if (current().kind !== "free-limit") return
       const at = current().resetAt
 
-      if (at === undefined) return i18n.t("ui.sessionTurn.freeLimit.title")
+      if (at === undefined || !Number.isFinite(at) || Number.isNaN(new Date(at).getTime()))
+        return i18n.t("ui.sessionTurn.freeLimit.title")
 
       const time = new Intl.DateTimeFormat(
         i18n.locale(),

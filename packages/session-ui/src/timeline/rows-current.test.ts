@@ -1490,6 +1490,19 @@ describe("current session timeline rows", () => {
       kind: "free-limit",
       resetAt: 62_000,
     })
+    expect(
+      Timeline.constructSessionMessageRows(
+        [user, { ...assistant, error: { ...error, retryAfterMs: 9_000_000_000_000_000 } }],
+        true,
+        { type: "idle" },
+      ).rows.at(-1),
+    ).toEqual(
+      new TimelineRow.Error({
+        userMessageID: "msg_user",
+        text: "Free usage limit reached.",
+        kind: "free-limit",
+      }),
+    )
     expect(Timeline.constructSessionMessageRows(quota, true, { type: "idle" }).rows.at(-1)).toEqual(
       new TimelineRow.Error({ userMessageID: "msg_user", text: "Go usage limit exceeded" }),
     )

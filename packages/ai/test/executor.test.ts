@@ -69,6 +69,7 @@ describe("RequestExecutor", () => {
 
   it.effect("keeps the reset time of an OpenCode Zen free usage limit", () =>
     Effect.sync(() => {
+      const zenUrl = "https://opencode.ai/zen/v1/chat/completions"
       // The exact response OpenCode Zen sends when an anonymous free allowance runs out.
       const body = JSON.stringify({
         type: "error",
@@ -76,23 +77,60 @@ describe("RequestExecutor", () => {
       })
       const free = RequestExecutor.httpFailure({
         message: "Rate limit exceeded. Please try again later.",
+        url: zenUrl,
+        status: 429,
+        responseHeaders: { "retry-after": "3600" },
+        responseBody: body,
+      })
+      const inference = RequestExecutor.httpFailure({
+        message: "Rate limit exceeded. Please try again later.",
+        url: "https://opencode.ai/inference/openai/v1/chat/completions",
+        status: 429,
+        responseHeaders: { "retry-after": new Date(Date.now() + 60_000).toUTCString() },
+        responseBody: body,
+      })
+      const thirdParty = RequestExecutor.httpFailure({
+        message: "Rate limit exceeded. Please try again later.",
         url: request.url,
         status: 429,
         responseHeaders: { "retry-after": "3600" },
         responseBody: body,
       })
+      const messageOnly = RequestExecutor.httpFailure({
+        message: "Upstream request failed: [FreeUsageLimitError] Rate limit exceeded",
+        url: zenUrl,
+        status: 429,
+      })
       const paid = RequestExecutor.httpFailure({
         message: "Go usage limit exceeded",
-        url: request.url,
+        url: zenUrl,
         status: 429,
         responseBody: JSON.stringify({ type: "error", error: { type: "GoUsageLimitError", message: "x" } }),
       })
+      const retryFor = (headers?: Record<string, string>) => {
+        const result = RequestExecutor.httpFailure({
+          message: "Rate limit exceeded. Please try again later.",
+          url: zenUrl,
+          status: 429,
+          responseHeaders: headers,
+          responseBody: body,
+        })
+        return result.reason._tag === "QuotaExceeded" ? result.reason.retryAfterMs : undefined
+      }
 
       expect(free.reason).toMatchObject({
         _tag: "QuotaExceeded",
         classification: "free-usage",
         retryAfterMs: 3_600_000,
       })
+      expect(inference.reason._tag === "QuotaExceeded" && inference.reason.classification).toBe("free-usage")
+      expect(inference.reason._tag === "QuotaExceeded" ? inference.reason.retryAfterMs : 0).toBeGreaterThan(0)
+      expect(thirdParty.reason._tag === "QuotaExceeded" && thirdParty.reason.classification).toBeUndefined()
+      expect(messageOnly.reason._tag === "QuotaExceeded" && messageOnly.reason.classification).toBeUndefined()
+      expect(retryFor(undefined)).toBeUndefined()
+      expect(retryFor({ "retry-after": "-10" })).toBe(0)
+      expect(retryFor({ "retry-after": "9000000000000" })).toBeUndefined()
+      expect(retryFor({ "retry-after": "1e308" })).toBeUndefined()
       expect(isRetryable(free)).toBe(false)
       expect(paid.reason._tag).toBe("QuotaExceeded")
       expect(paid.reason._tag === "QuotaExceeded" && paid.reason.classification).toBeUndefined()

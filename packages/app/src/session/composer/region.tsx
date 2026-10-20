@@ -190,16 +190,44 @@ export function createActiveSessionRegion(input: {
 
   const revertMessage: NonNullable<SessionUserActions["revert"]> = ({ messageID }) => revert.to(messageID)
 
+  const recalled = new Set<string>()
+
   // The free allowance stops a prompt after it was sent. Hand its text back so switching models and resending is one
   // step, unless the user has already started typing something else.
   onCleanup(
     location().event.on("session.step.failed", (event) => {
-      if (event.data.sessionID !== input.session.identity.params.id) return
+      const sessionID = input.session.identity.params.id
 
-      if (event.data.error.type !== "provider.free-limit" || promptLength(prompt.current()) > 0) return
-      const message = input.session.history.userMessages().at(-1)
+      if (!sessionID || event.data.sessionID !== sessionID || event.data.error.type !== "provider.free-limit") return
 
-      if (message) revert.recall(message)
+      if (recalled.has(event.data.assistantMessageID)) return
+      recalled.add(event.data.assistantMessageID)
+
+      if (
+        !prompt.ready() ||
+        !prompt.current().every((part) => part.type === "text" && part.content.length === 0) ||
+        prompt.context.items().length > 0
+      )
+        return
+
+      const messages = input.session.history.messages()
+      const end = messages.findIndex((item) => item.id === event.data.assistantMessageID)
+
+      for (let i = (end < 0 ? messages.length : end) - 1; i >= 0; i--) {
+        const item = messages[i]
+
+        if (!item || item.type === "shell" || item.type === "idle") return
+
+        if (item.type === "user" && !data.session.input.has(sessionID, item.id)) {
+          revert.recall(item)
+
+          return
+        }
+      }
+
+      const fallback = messages.findLast((item) => item.type === "user" && !data.session.input.has(sessionID, item.id))
+
+      if (fallback?.type === "user") revert.recall(fallback)
     }),
   )
 

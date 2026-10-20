@@ -29,6 +29,14 @@ const tokenSharingMessages = {
 const FREE_USAGE_LIMIT_MESSAGE =
   "Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models."
 
+const MAX_RETRY_AFTER_MS = 7 * 86_400_000
+
+function normalizeRetryAfterMs(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return undefined
+  const ms = Math.ceil(Math.max(0, value))
+  return ms <= MAX_RETRY_AFTER_MS ? ms : undefined
+}
+
 export function toSessionError(cause: unknown): SessionError.Error {
   if (cause instanceof AIError) {
     switch (cause.reason._tag) {
@@ -37,12 +45,14 @@ export function toSessionError(cause: unknown): SessionError.Error {
       case "Authentication":
         return providerError("provider.auth", cause.reason)
       case "QuotaExceeded":
-        if (cause.reason.classification === "free-usage")
+        if (cause.reason.classification === "free-usage") {
+          const retryAfterMs = normalizeRetryAfterMs(cause.reason.retryAfterMs)
           return {
             ...providerError("provider.free-limit", cause.reason),
             message: FREE_USAGE_LIMIT_MESSAGE,
-            ...(cause.reason.retryAfterMs === undefined ? {} : { retryAfterMs: Math.ceil(cause.reason.retryAfterMs) }),
+            ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
           }
+        }
         return providerError("provider.quota", cause.reason)
       case "ContentPolicy":
         return providerError("provider.content-filter", cause.reason)

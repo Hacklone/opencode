@@ -22,7 +22,32 @@ const GO_UPSELL_PROVIDERS = new Set(["opencode", "opencode-go"])
 
 const GO_URL = "https://opencode.ai/go"
 
+const MAX_RETRY_AFTER_MS = 7 * 86_400_000
+
 const CHATGPT_USAGE_LIMIT_WINDOW = 86_400_000 // 24 hrs
+
+function formatFreeLimitReset(locale: string, created: number, retryAfterMs: number | undefined) {
+  if (
+    retryAfterMs === undefined ||
+    !Number.isFinite(retryAfterMs) ||
+    retryAfterMs < 0 ||
+    retryAfterMs > MAX_RETRY_AFTER_MS ||
+    !Number.isFinite(created)
+  )
+    return undefined
+
+  const at = created + retryAfterMs
+
+  if (Number.isNaN(new Date(at).getTime())) return undefined
+
+  const sameDay =
+    new Date(at).toDateString() === new Date(created).toDateString() && at - Date.now() < GO_UPSELL_WINDOW
+
+  return new Intl.DateTimeFormat(
+    locale,
+    sameDay ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" },
+  ).format(at)
+}
 
 export function isChatGPTUsageLimit(error: SessionStepFailed["data"]["error"]) {
   return (
@@ -58,12 +83,16 @@ export function useUsageExceededDialogs() {
   const { params } = useSessionLayout()
   const { t, tDynamic, locale } = useI18n()
 
-  const [goUpsellState, setGoUpsellState] = persisted(Persist.global("go-upsell"), GoUpsellState, {
-    [GO_UPSELL_FREE_TIER_LAST_SEEN_AT]: null,
-    [GO_UPSELL_FREE_TIER_DONT_SHOW]: null,
-    [GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT]: null,
-    [GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW]: null,
-  })
+  const [goUpsellState, setGoUpsellState, goUpsellInit, goUpsellReady] = persisted(
+    Persist.global("go-upsell"),
+    GoUpsellState,
+    {
+      [GO_UPSELL_FREE_TIER_LAST_SEEN_AT]: null,
+      [GO_UPSELL_FREE_TIER_DONT_SHOW]: null,
+      [GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT]: null,
+      [GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW]: null,
+    },
+  )
 
   const [chatgptUsageLimit, setChatGPTUsageLimit] = persisted(
     Persist.global("chatgpt-usage-limit"),
@@ -71,48 +100,51 @@ export function useUsageExceededDialogs() {
     { lastSeenAt: null },
   )
 
+  const showFreeLimitDialog = (evt: SessionStepFailed) => {
+    if (evt.data.sessionID !== params.id || dialog.active) return
+    const seen = goUpsellState[GO_UPSELL_FREE_TIER_LAST_SEEN_AT]
+
+    if (seen && Date.now() - seen < GO_UPSELL_WINDOW) return
+
+    if (goUpsellState[GO_UPSELL_FREE_TIER_DONT_SHOW]) return
+
+    // Counted when shown, so dismissing with Escape or the backdrop also waits out the window.
+    setGoUpsellState(GO_UPSELL_FREE_TIER_LAST_SEEN_AT, Date.now())
+
+    const reset = formatFreeLimitReset(locale(), evt.created, evt.data.error.retryAfterMs)
+
+    dialog.show(() => (
+      <DialogUsageExceeded
+        title={t("dialog.usageExceeded.freeTier.title")}
+        description={
+          reset
+            ? `${t("dialog.usageExceeded.freeTier.description")} ${t("dialog.usageExceeded.freeTier.reset", { time: reset })}`
+            : t("dialog.usageExceeded.freeTier.description")
+        }
+        actionLabel={t("dialog.usageExceeded.freeTier.actionLabel")}
+        link={GO_URL}
+        onClose={(dontShowAgain) => {
+          if (dontShowAgain) setGoUpsellState(GO_UPSELL_FREE_TIER_DONT_SHOW, Date.now())
+          else {
+            void import("@/providers/connect/dialog").then((x) => {
+              const controller = x.useProviderConnectController()
+              controller.select("opencode-go")
+              void dialog.show(() => <x.DialogConnectProvider directory={sdk().directory} controller={controller} />)
+            })
+          }
+        }}
+      />
+    ))
+  }
+
   onCleanup(
     sdk().event.on("session.step.failed", (evt) => {
       if (evt.data.sessionID !== params.id || dialog.active) return
       const error = evt.data.error
 
       if (error.type === "provider.free-limit") {
-        const seen = goUpsellState[GO_UPSELL_FREE_TIER_LAST_SEEN_AT]
-
-        if (seen && Date.now() - seen < GO_UPSELL_WINDOW) return
-
-        if (goUpsellState[GO_UPSELL_FREE_TIER_DONT_SHOW]) return
-
-        // Counted when shown, so dismissing with Escape or the backdrop also waits out the window.
-        setGoUpsellState(GO_UPSELL_FREE_TIER_LAST_SEEN_AT, Date.now())
-
-        const reset =
-          error.retryAfterMs === undefined
-            ? undefined
-            : new Intl.DateTimeFormat(locale(), { timeStyle: "short" }).format(Date.now() + error.retryAfterMs)
-
-        dialog.show(() => (
-          <DialogUsageExceeded
-            title={t("dialog.usageExceeded.freeTier.title")}
-            description={
-              reset
-                ? t("dialog.usageExceeded.freeTier.descriptionReset", { time: reset })
-                : t("dialog.usageExceeded.freeTier.description")
-            }
-            actionLabel={t("dialog.usageExceeded.freeTier.actionLabel")}
-            link={GO_URL}
-            onClose={(dontShowAgain) => {
-              if (dontShowAgain) setGoUpsellState(GO_UPSELL_FREE_TIER_DONT_SHOW, Date.now())
-              else {
-                void import("@/providers/connect/dialog").then((x) => {
-                  const controller = x.useProviderConnectController()
-                  controller.select("opencode-go")
-                  void dialog.show(() => <x.DialogConnectProvider directory={sdk().directory} controller={controller} />)
-                })
-              }
-            }}
-          />
-        ))
+        if (goUpsellReady()) showFreeLimitDialog(evt)
+        else if (goUpsellInit instanceof Promise) void goUpsellInit.then(() => showFreeLimitDialog(evt))
 
         return
       }
