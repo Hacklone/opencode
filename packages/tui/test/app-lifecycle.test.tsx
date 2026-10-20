@@ -1745,7 +1745,7 @@ test("free usage limit opens OpenCode Go once when OAuth is available, lists nex
       if (url.pathname === `/api/session/${session.id}/message`)
         return json({
           data: [
-            { id: "msg_free_user", type: "user", text: "Refactor the parser", time: { created: 1 } },
+            { id: "msg_queued_user", type: "user", text: "Queued follow-up", time: { created: 3 } },
             {
               id: "msg_free_assistant",
               type: "assistant",
@@ -1754,7 +1754,7 @@ test("free usage limit opens OpenCode Go once when OAuth is available, lists nex
               content: [],
               time: { created: 2 },
             },
-            { id: "msg_queued_user", type: "user", text: "Queued follow-up", time: { created: 3 } },
+            { id: "msg_free_user", type: "user", text: "Refactor the parser", time: { created: 1 } },
           ],
           cursor: {},
         })
@@ -1804,35 +1804,50 @@ test("free usage limit opens OpenCode Go once when OAuth is available, lists nex
   await setup.waitForFrame((frame) => frame.split("Refactor the parser").length === 3)
   expect(setup.captureCharFrame().split("Queued follow-up").length).toBe(2)
 
-  // A duplicate event for the same step does not re-restore after the user edits the composer.
+  // Clear the composer: a duplicate event for the same step does not re-restore into the cleared composer.
+  setup.mockInput.pressKey("c", { ctrl: true })
+  await setup.waitForFrame((frame) => frame.split("Refactor the parser").length === 2)
   setup.events.emit({
     id: "evt_free_limit_dup",
     created: 3,
     type: "session.step.failed",
     durable: { aggregateID: session.id, seq: 3, version: 1 },
-    data: { sessionID: session.id, assistantMessageID: "msg_free_assistant", error },
+    data: { sessionID: session.id, assistantMessageID: "msg_free_assistant", error: { ...error, retryAfterMs: undefined } },
   })
+  await setup.waitForFrame((frame) => !frame.includes("They reset at"))
+  expect(setup.captureCharFrame().split("Refactor the parser").length).toBe(2)
 
-  // Second hit in the same 24h does not reopen the dialog and does not overwrite an existing composer draft.
+  // With the composer still empty, delivering the next turn and hitting the limit again in the same 24h recalls that turn's prompt without reopening the dialog.
+  setup.events.emit({
+    id: "evt_free_limit_delivered",
+    created: 4,
+    type: "session.inbox.delivered",
+    durable: { aggregateID: session.id, seq: 4, version: 1 },
+    data: { sessionID: session.id, inboxID: "msg_queued_user" },
+  })
   setup.events.emit({
     id: "evt_free_limit_2",
-    created: 4,
+    created: 5,
     type: "session.step.started",
-    durable: { aggregateID: session.id, seq: 4, version: 1 },
-    data: { sessionID: session.id, assistantMessageID: "msg_free_assistant_2", agent: "build", model, started: 4 },
+    durable: { aggregateID: session.id, seq: 5, version: 1 },
+    data: { sessionID: session.id, assistantMessageID: "msg_free_assistant_2", agent: "build", model, started: 5 },
   })
   setup.events.emit({
     id: "evt_free_limit_3",
-    created: 5,
+    created: 6,
     type: "session.step.failed",
-    durable: { aggregateID: session.id, seq: 5, version: 1 },
+    durable: { aggregateID: session.id, seq: 6, version: 1 },
     data: { sessionID: session.id, assistantMessageID: "msg_free_assistant_2", error },
   })
-  await setup.waitForFrame((frame) => frame.split("You've used today's free messages").length === 3)
+  await setup.waitForFrame(
+    (frame) =>
+      frame.split("You've used today's free messages").length === 3 &&
+      frame.split("Queued follow-up").length === 3,
+  )
   expect(setup.captureCharFrame()).not.toContain("Connect OpenCode Go")
 })
 
-test("free usage limit skips auto-opening Go when only API key auth is registered or while typing", async () => {
+test("free usage limit skips auto-opening Go when only API key auth is registered", async () => {
   await using state = await tmpdir()
   const session = {
     id: "ses_free_limit_key",
@@ -1850,7 +1865,6 @@ test("free usage limit skips auto-opening Go when only API key auth is registere
     status: 429,
     retryAfterMs: 3_600_000,
   }
-  let methods: unknown[] = [{ type: "key" }]
   await using setup = await createAppFixture({
     width: 100,
     state: state.path,
@@ -1862,12 +1876,11 @@ test("free usage limit skips auto-opening Go when only API key auth is registere
       if (url.pathname === "/api/integration")
         return json({
           location: { directory, project: { id: "proj_test", directory, canonical: directory } },
-          data: [{ id: "opencode-go", name: "OpenCode Go", methods, connections: [] }],
+          data: [{ id: "opencode-go", name: "OpenCode Go", methods: [{ type: "key" }], connections: [] }],
         })
       if (url.pathname === `/api/session/${session.id}/message`)
         return json({
           data: [
-            { id: "msg_free_user", type: "user", text: "Refactor the parser", time: { created: 1 } },
             {
               id: "msg_free_assistant",
               type: "assistant",
@@ -1876,14 +1889,7 @@ test("free usage limit skips auto-opening Go when only API key auth is registere
               content: [],
               time: { created: 2 },
             },
-            {
-              id: "msg_free_assistant_2",
-              type: "assistant",
-              agent: "build",
-              model,
-              content: [],
-              time: { created: 3 },
-            },
+            { id: "msg_free_user", type: "user", text: "Refactor the parser", time: { created: 1 } },
           ],
           cursor: {},
         })
@@ -1905,18 +1911,88 @@ test("free usage limit skips auto-opening Go when only API key auth is registere
   await setup.waitForFrame((frame) => frame.includes("You've used today's free messages. They reset at"))
   await setup.waitForFrame((frame) => frame.split("Refactor the parser").length === 3)
   expect(setup.captureCharFrame()).not.toContain("Connect OpenCode Go")
+})
 
-  // Enable OAuth on Go, but while the composer already has a draft (from the restored text), a new failure neither overwrites nor steals focus.
-  methods = [{ id: "device", type: "oauth", label: "Sign in with your OpenCode account" }, { type: "key" }]
-  setup.events.emit({
-    id: "evt_free_limit_key_2",
-    created: 5,
-    type: "session.step.failed",
-    durable: { aggregateID: session.id, seq: 2, version: 1 },
-    data: { sessionID: session.id, assistantMessageID: "msg_free_assistant_2", error },
+test("free usage limit does not overwrite a draft or open Go while typing with OAuth available", async () => {
+  await using state = await tmpdir()
+  const session = {
+    id: "ses_free_limit_typing",
+    projectID: "proj_test",
+    location: { directory },
+    title: "Free limit typing",
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1, updated: 1 },
+  }
+  const model = { id: "big-pickle", providerID: "opencode" }
+  const error = {
+    type: "provider.free-limit",
+    message: "Free usage limit reached.",
+    status: 429,
+    retryAfterMs: 3_600_000,
+  }
+  let integrationReads = 0
+  await using setup = await createAppFixture({
+    width: 100,
+    state: state.path,
+    args: { sessionID: session.id },
+    config: { animations: false, tabs: { mode: "off" } },
+    fetch: (url) => {
+      if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
+      if (url.pathname === `/api/session/${session.id}`) return json({ data: session })
+      if (url.pathname === "/api/integration") {
+        integrationReads += 1
+        return json({
+          location: { directory, project: { id: "proj_test", directory, canonical: directory } },
+          data: [
+            {
+              id: "opencode-go",
+              name: "OpenCode Go",
+              methods: [
+                { id: "device", type: "oauth", label: "Sign in with your OpenCode account" },
+                { type: "key" },
+              ],
+              connections: [],
+            },
+          ],
+        })
+      }
+      if (url.pathname === `/api/session/${session.id}/message`)
+        return json({
+          data: [
+            {
+              id: "msg_free_assistant",
+              type: "assistant",
+              agent: "build",
+              model,
+              content: [],
+              time: { created: 2 },
+            },
+            { id: "msg_free_user", type: "user", text: "Refactor the parser", time: { created: 1 } },
+          ],
+          cursor: {},
+        })
+      if ([`/api/session/${session.id}/inbox`, `/api/session/${session.id}/permission`].includes(url.pathname))
+        return json({ data: [] })
+      return undefined
+    },
   })
-  await setup.waitForFrame((frame) => frame.split("You've used today's free messages").length === 3)
-  expect(setup.captureCharFrame()).not.toContain("Connect OpenCode Go")
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Refactor the parser") && integrationReads > 0)
+  await setup.mockInput.typeText("Draft in progress")
+  await setup.waitForFrame((frame) => frame.includes("Draft in progress"))
+  setup.events.emit({
+    id: "evt_free_limit_typing_1",
+    created: 3,
+    type: "session.step.failed",
+    durable: { aggregateID: session.id, seq: 1, version: 1 },
+    data: { sessionID: session.id, assistantMessageID: "msg_free_assistant", error },
+  })
+  await setup.waitForFrame((frame) => frame.includes("You've used today's free messages. They reset at"))
+  const frame = setup.captureCharFrame()
+  expect(frame).toContain("Draft in progress")
+  expect(frame.split("Refactor the parser").length).toBe(2)
+  expect(frame).not.toContain("Connect OpenCode Go")
 })
 
 test.each([44, 100])(

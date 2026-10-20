@@ -41,8 +41,8 @@ function formatFreeLimitReset(locale: string, created: number, retryAfterMs: num
 
   if (Number.isNaN(new Date(at).getTime())) return undefined
 
-  const sameDay =
-    new Date(at).toDateString() === new Date(created).toDateString() && at - Date.now() < GO_UPSELL_WINDOW
+  const now = Date.now()
+  const sameDay = new Date(at).toDateString() === new Date(now).toDateString() && at - now < GO_UPSELL_WINDOW
 
   return new Intl.DateTimeFormat(
     locale,

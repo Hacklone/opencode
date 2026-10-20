@@ -205,6 +205,7 @@ export function createActiveSessionRegion(input: {
 
       if (
         !prompt.ready() ||
+        !data.session.input.ready(sessionID) ||
         !prompt.current().every((part) => part.type === "text" && part.content.length === 0) ||
         prompt.context.items().length > 0
       )
@@ -213,7 +214,7 @@ export function createActiveSessionRegion(input: {
       const messages = input.session.history.messages()
       const end = messages.findIndex((item) => item.id === event.data.assistantMessageID)
 
-      for (let i = (end < 0 ? messages.length : end) - 1; i >= 0; i--) {
+      for (let i = end - 1; i >= 0; i--) {
         const item = messages[i]
 
         if (!item || item.type === "shell" || item.type === "idle") return
@@ -224,10 +225,6 @@ export function createActiveSessionRegion(input: {
           return
         }
       }
-
-      const fallback = messages.findLast((item) => item.type === "user" && !data.session.input.has(sessionID, item.id))
-
-      if (fallback?.type === "user") revert.recall(fallback)
     }),
   )
 

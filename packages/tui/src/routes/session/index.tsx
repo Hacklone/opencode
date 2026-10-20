@@ -648,25 +648,17 @@ export function Session(props: {
           !current.current.pasted.length,
       )
       if (!wasEmpty || !current) return
-      const list = messages()
-      const end = list.findIndex((item) => item.id === event.data.assistantMessageID)
-      let recalled = false
-      let blocked = false
-      for (let i = (end < 0 ? list.length : end) - 1; i >= 0; i--) {
-        const item = list[i]
-        if (!item || item.type === "shell" || item.type === "idle") {
-          blocked = true
-          break
+      if (data.session.input.ready(route.sessionID)) {
+        const list = messages()
+        const end = list.findIndex((item) => item.id === event.data.assistantMessageID)
+        for (let i = end - 1; i >= 0; i--) {
+          const item = list[i]
+          if (!item || item.type === "shell" || item.type === "idle") break
+          if (item.type === "user" && !data.session.input.has(route.sessionID, item.id)) {
+            current.set({ ...projectedPromptInput(item), pasted: [] })
+            break
+          }
         }
-        if (item.type === "user" && !data.session.input.has(route.sessionID, item.id)) {
-          current.set({ ...projectedPromptInput(item), pasted: [] })
-          recalled = true
-          break
-        }
-      }
-      if (!recalled && !blocked) {
-        const fallback = list.findLast((item) => item.type === "user" && !data.session.input.has(route.sessionID, item.id))
-        if (fallback?.type === "user") current.set({ ...projectedPromptInput(fallback), pasted: [] })
       }
       if (dialog.stack.length > 0) return
       const goIntegration = (data.location.integration.list(location()) ?? data.location.integration.list() ?? []).find(
@@ -2473,7 +2465,8 @@ function FreeLimitNotice(props: { message: Pick<SessionMessageAssistant, "error"
       return
     const at = base + delay
     if (Number.isNaN(new Date(at).getTime())) return
-    return new Date(at).toDateString() === new Date(base).toDateString() && at - Date.now() < 86_400_000
+    const now = Date.now()
+    return new Date(at).toDateString() === new Date(now).toDateString() && at - now < 86_400_000
       ? Locale.time(at)
       : Locale.datetime(at)
   })

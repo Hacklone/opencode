@@ -1017,9 +1017,12 @@ export function createSessionTimelineRowRenderer(input: {
       if (at === undefined || !Number.isFinite(at) || Number.isNaN(new Date(at).getTime()))
         return i18n.t("ui.sessionTurn.freeLimit.title")
 
+      const now = Date.now()
+      const sameDay = new Date(at).toDateString() === new Date(now).toDateString() && at - now < 86_400_000
+
       const time = new Intl.DateTimeFormat(
         i18n.locale(),
-        at - Date.now() < 86_400_000 ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" },
+        sameDay ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" },
       ).format(at)
 
       return i18n.t("ui.sessionTurn.freeLimit.lineReset", { time })
