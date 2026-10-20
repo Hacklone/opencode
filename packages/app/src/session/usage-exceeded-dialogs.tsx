@@ -7,6 +7,7 @@ import { Persistence } from "@/runtime/persistence/schema"
 import { useSessionLayout } from "./session-layout"
 import { useDialog, useI18n } from "@opencode/ui/context"
 import { DialogUsageExceeded } from "@/providers/connect/usage-exceeded"
+import { useLocal, type ModelSelection } from "@/providers/models/selection"
 
 const GO_UPSELL_FREE_TIER_LAST_SEEN_AT = "go_upsell_last_seen_at"
 
@@ -77,9 +78,13 @@ function goUpsellKeys(status: SessionStatus) {
   }
 }
 
-export function useUsageExceededDialogs() {
+export function useUsageExceededDialogs(input?: {
+  selection?: () => ModelSelection | undefined
+  onDone?: () => void
+}) {
   const sdk = useWorkspaceLocation()
   const dialog = useDialog()
+  const local = useLocal()
   const { params } = useSessionLayout()
   const { t, tDynamic, locale } = useI18n()
 
@@ -129,7 +134,14 @@ export function useUsageExceededDialogs() {
             void import("@/providers/connect/dialog").then((x) => {
               const controller = x.useProviderConnectController()
               controller.select("opencode-go")
-              void dialog.show(() => <x.DialogConnectProvider directory={sdk().directory} controller={controller} />)
+              void dialog.show(() => (
+                <x.DialogConnectProvider
+                  directory={sdk().directory}
+                  controller={controller}
+                  selection={input?.selection?.() ?? local.model}
+                  onDone={input?.onDone}
+                />
+              ))
             })
           }
         }}
