@@ -14,6 +14,7 @@ test("the free usage limit opens the Go dialog once, leaves a readable notice, a
   const view = await openSession(page, {
     name: "FreeLimit",
     sessions: [{ id: sessionID, agent: "build", model }],
+    onFileWrite: () => undefined,
     pageMessages: () => ({
       items: [
         { id: "msg_free_user", type: "user", text: "Refactor the parser", time: { created: T0 } },
@@ -60,15 +61,11 @@ test("the free usage limit opens the Go dialog once, leaves a readable notice, a
   await page.reload()
   await expect(view.editor).toBeVisible()
   await view.editor.fill("")
-
-  const transfer = await page.evaluateHandle(() => {
-    const value = new DataTransfer()
-    value.items.add(new File(["png-bytes"], "diagram.png", { type: "image/png" }))
-
-    return value
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "diagram.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("png-bytes"),
   })
-
-  await view.editor.dispatchEvent("paste", { clipboardData: transfer })
   await expect(page.locator('[data-component="composer-attachments"]')).toContainText("diagram.png")
 
   await view.push([
