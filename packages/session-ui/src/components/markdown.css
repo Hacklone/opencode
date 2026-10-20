@@ -66,9 +66,9 @@
   }
 
   h3 {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--v2-text-text-base);
-    font-weight: var(--font-weight-medium);
+    font-weight: 600;
     margin-top: 20px;
     margin-bottom: 8px;
     line-height: var(--line-height-large);
@@ -77,12 +77,18 @@
   h4,
   h5,
   h6 {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--v2-text-text-muted);
     font-weight: var(--font-weight-medium);
     margin-top: 20px;
     margin-bottom: 8px;
     line-height: var(--line-height-large);
+  }
+
+  /* A heading's own bottom margin sets the gap to its section, so a block's larger top margin can't push the heading away from it. */
+  :is(h1, h2, h3, h4, h5, h6) + :is(p, ul, ol, blockquote, [data-component]),
+  :is(h1, h2, h3, h4, h5, h6) + [data-component="markdown-code"] > pre {
+    margin-top: 0;
   }
 
   /* Emphasis & Strong: Neutral strong color */
@@ -197,7 +203,6 @@
 
   ol {
     list-style-type: decimal;
-    padding-inline-start: 2.25rem;
   }
 
   li {
@@ -264,6 +269,7 @@
     background: var(--color-background-stronger);
     color: var(--text-base);
     font-size: 13px;
+    line-height: 20px;
     padding: 12px;
     border-radius: 6px;
     border: 0.5px solid var(--v2-border-border-base);
