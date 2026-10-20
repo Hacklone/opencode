@@ -1,5 +1,7 @@
 export default {
   "command.toggle": "Toggle debug bar",
+  "close.label": "Hide debug bar",
+  "close.tip": "Hide debug bar. Bring it back from the command palette: Toggle debug bar.",
   ariaLabel: "Development performance diagnostics",
   providerAriaLabel: "Provider performance diagnostics",
   na: "n/a",

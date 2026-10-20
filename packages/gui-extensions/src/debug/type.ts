@@ -35,7 +35,6 @@ export function apply(type: Type) {
     root.style.setProperty(`--type-${name}`, css ?? value)
   }
 
-
   if (!document.getElementById("type-tuning")) {
     const style = document.createElement("style")
     style.id = "type-tuning"
@@ -43,12 +42,10 @@ export function apply(type: Type) {
     document.head.append(style)
   }
 
-
   set("smoothing", type.smoothing)
   set("weight", type.weight)
   set("tracking", type.tracking, type.tracking && `${type.tracking}px`)
   set("opsz", type.opsz === "none" ? "none" : undefined)
-
 
   for (const name of ["--font-family-sans", "--v2-font-family-sans"]) {
     if (type.family === "system") root.style.setProperty(name, system)

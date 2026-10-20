@@ -208,6 +208,7 @@ export function mountExtensions(input: {
   settings?: boolean
 }) {
   const held = Promise.withResolvers<void>()
+  const saved = { ...input.stored }
   const [disabled, setDisabled] = createSignal<ReadonlySet<string>>(new Set(input.disabled ?? []))
   const hosts: ExtensionHost[] = []
   const container = document.createElement("div")
@@ -224,9 +225,11 @@ export function mountExtensions(input: {
       getItem: async (key: string) => {
         await held.promise
 
-        return key in (input.stored ?? {}) ? JSON.stringify(input.stored?.[key]) : null
+        return key in saved ? JSON.stringify(saved[key]) : null
       },
-      setItem: async () => undefined,
+      setItem: async (key: string, value: string) => {
+        saved[key] = JSON.parse(value)
+      },
       removeItem: async () => undefined,
     }),
   }
@@ -303,6 +306,8 @@ export function mountExtensions(input: {
       dispose()
       container.remove()
     },
+    /** What the window has written to storage, seeded with `stored`. */
+    saved: () => ({ ...saved }),
     /** Lets the held storage reads answer. */
     release: () => held.resolve(),
     disable: (ids: readonly string[]) => setDisabled(new Set(ids)),

@@ -1,4 +1,4 @@
-import { createSignal, lazy, Show, Suspense } from "solid-js"
+import { lazy, Show, Suspense } from "solid-js"
 import { Command, Slot, type Setup } from "../sdk"
 import type Debug from "./index"
 
@@ -11,19 +11,27 @@ const setup: Setup<typeof Debug> = (ctx) => {
   const TypePanel = motionTools ? lazy(() => import("./type-panel")) : undefined
 
   if (motionTools) void import("./type").then((type) => type.applyStored())
-  // Window-local; every window starts with the bar hidden.
-  const [visible, setVisible] = createSignal(false)
-
-  const [motion, setMotion] = createSignal(false)
+  const bar = ctx.stores.bar
+  const visible = () => bar.value.visible
+  const motion = () => bar.value.motion
+  const typing = () => bar.value.type
 
   const toggle = () => {
-    setVisible((value) => !value)
+    bar.update((draft) => {
+      draft.visible = !draft.visible
+    })
   }
 
-  const [typing, setTyping] = createSignal(false)
+  const toggleType = () => {
+    bar.update((draft) => {
+      draft.type = !draft.type
+    })
+  }
 
   const toggleMotion = () => {
-    setMotion((value) => !value)
+    bar.update((draft) => {
+      draft.motion = !draft.motion
+    })
   }
 
   ctx.add(
@@ -45,8 +53,9 @@ const setup: Setup<typeof Debug> = (ctx) => {
           <Suspense>
             <DebugBar
               diagnostics={import.meta.env.DEV}
+              onClose={toggle}
               motion={Motion ? { open: motion(), toggle: toggleMotion } : undefined}
-              type={TypePanel ? { open: typing(), toggle: () => setTyping((value) => !value) } : undefined}
+              type={TypePanel ? { open: typing(), toggle: toggleType } : undefined}
               inline
             />
           </Suspense>

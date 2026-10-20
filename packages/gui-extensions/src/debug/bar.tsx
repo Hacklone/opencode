@@ -1,6 +1,8 @@
 import { batch, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
+import { Icon } from "@opencode/ui/icon"
+import { IconButton } from "@opencode/ui/icon-button"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { createKeyed, useExtension } from "../sdk"
 import {
@@ -197,6 +199,7 @@ export default function DebugBar(props: {
   inline?: boolean
   motion?: { open: boolean; toggle: () => void }
   type?: { open: boolean; toggle: () => void }
+  onClose?: () => void
 }) {
   const ctx = useExtension()
   const router = ctx.router
@@ -613,6 +616,17 @@ export default function DebugBar(props: {
           grid: !props.inline,
         }}
       >
+        <Show when={props.onClose}>
+          <Tooltip appearance="compact" value={ctx.t("close.tip")} placement="top">
+            <IconButton
+              size="small"
+              variant="ghost-muted"
+              icon={<Icon name="close" />}
+              aria-label={ctx.t("close.label")}
+              onClick={() => props.onClose?.()}
+            />
+          </Tooltip>
+        </Show>
         <Cell
           label={ctx.t("tps.label")}
           tip={ctx.t("tps.tip")}
